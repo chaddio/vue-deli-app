@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="Spear Practice Solutions - Vital Stats" default="build">
+
+    <property environment="JENKINS_ENV" />
+    <property name="dev-bucket" value="devforms-site-uadqftnjx4qk"/>
+    <property name="qa-bucket" value="qaforms-site-1jxc7ylmpbaua"/>
+    <property name="uat-bucket" value="uatforms-site-lzxc2mixvte4"/>
+    <property name="staging-bucket" value="stagingforms-site-1wog6pvlp2y8u"/>
+    <property name="production-bucket" value="productionforms-site-eyb2gardkr1"/>
+    <property name="build-bucket" value="sps-deployments-forms"/>
+    <property name="config-bucket" value="sps-jenkins-configs"/>
+    <property name="config-folder" value="sps-forms"/>
+
+    <target name="aws-and-finalize">
+        <echo message="copying ${JENKINS_ENV.workspace} file(s) to s3 distribution bucket ${bucket}" />
+        <exec executable="/usr/bin/aws" failonerror="true">
+            <arg value="s3" />
+            <arg value="cp" />
+            <arg value="${basedir}/dist" />
+            <arg value="s3://${bucket}/dist" />
+            <arg value="--recursive" />
+            <arg value="--quiet" />
+            <arg value="--acl" />
+            <arg value="public-read" />
+        </exec>
+        <echo message="copy of the dist was successful to '${bucket}' (`aws cp s3` output is a bit noisy)" />
+        <tar destfile="${basedir}/${JENKINS_ENV.BUILD_NUMBER}.tar" basedir="${basedir}/dist"/>
+        <gzip src="${JENKINS_ENV.BUILD_NUMBER}.tar" destfile="${JENKINS_ENV.BUILD_NUMBER}.tar.gz"/>
+        <exec executable="/usr/bin/aws" failonerror="true">
+            <arg value="s3" />
+            <arg value="cp" />
+            <arg value="${JENKINS_ENV.BUILD_NUMBER}.tar.gz" />
+            <arg value="s3://${build-bucket}/${build-env}/" />
+        </exec>
+        <echo message="build was archived to '${bucket}'" />
+        <delete file="${JENKINS_ENV.BUILD_NUMBER}.tar"/>
+        <delete file="${JENKINS_ENV.BUILD_NUMBER}.tar.gz"/>
+        <!-- <exec executable="/bin/rm" failonerror="true">
+            <arg value="${basedir}/${JENKINS_ENV.BUILD_NUMBER}.tar" />
+        </exec> -->
+    </target>
+
+    <!-- MAKE ANYTHING EXECUTABLE, Other pre build options-->
+    <target name="make-executable">
+        <exec executable="/usr/local/bin/yarn" failonerror="true">
+            <arg value="--version" />
+        </exec>
+        <!--<echo message="test insert into file" file="${basedir}/test.txt" append="false" force="true"/>
+        <exec executable="/bin/chmod">
+            <arg value="700" />
+            <arg value="${basedir}/test.txt" />
+        </exec>-->
+        <echo message="'make-executable' is now complete, moving on...." />
+    </target>
+
+
+    <!-- FULL PROD/STAGING  BUILD WITH DEPLOY -->
+    <target name="build" depends="make-executable">
+        <echo message="pulling ${build-env} .env file(s) from s3" />
+        <exec executable="/usr/bin/aws" failonerror="true">
+          <arg value="s3" />
+          <arg value="cp" />
+          <arg value="s3://${config-bucket}/${config-folder}/${build-env}.env" />
+          <arg value="${JENKINS_ENV.workspace}.env" />
+        </exec>
+        <echo message="'build' is starting...running yarn tasks" />
+        <exec executable='/usr/local/bin/yarn' failonerror="true">
+            <arg value="install" />
+        </exec>
+        <!--<exec executable='/usr/local/bin/yarn' failonerror="false">-->
+            <!--<arg value="run" />-->
+            <!--<arg value="test" />-->
+        <!--</exec>-->
+        <exec executable='/usr/local/bin/yarn' failonerror="true">
+            <arg value="run" />
+            <arg value="build" />
+        </exec>
+    </target>
+
+    <target name="build-qa" depends="build">
+        <antcall target="aws-and-finalize">
+            <param name="bucket" value="${qa-bucket}"/>
+            <param name="build-env" value="qa"/>
+        </antcall>
+
+    </target>
+    <target name="build-dev">
+        <antcall target="build">
+          <param name="bucket" value="${dev-bucket}"/>
+          <param name="build-env" value="dev"/>
+        </antcall>
+        <antcall target="aws-and-finalize">
+            <param name="bucket" value="${dev-bucket}"/>
+            <param name="build-env" value="dev"/>
+        </antcall>
+
+    </target>
+    <target name="build-uat" depends="build">
+        <antcall target="aws-and-finalize">
+            <param name="bucket" value="${uat-bucket}"/>
+            <param name="build-env" value="uat"/>
+        </antcall>
+    </target>
+    <target name="build-staging" depends="build">
+        <antcall target="aws-and-finalize">
+            <param name="bucket" value="${staging-bucket}"/>
+            <param name="build-env" value="staging"/>
+        </antcall>
+    </target>
+    <target name="build-production" depends="build">
+        <antcall target="aws-and-finalize">
+            <param name="bucket" value="${production-bucket}"/>
+            <param name="build-env" value="production"/>
+        </antcall>
+    </target>
+
+
+</project>
